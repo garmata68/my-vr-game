@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Space Defender Pro VR</title>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://unpkg.com/aframe-environment-component@1.3.2/dist/aframe-environment-component.min.js"></script>
+    
+    <script>
+      // Основная логика игры
+      AFRAME.registerComponent('game-manager', {
+        init: function () {
+          this.score = 0;
+          this.scoreEl = document.querySelector('#score');
+          this.spawnTimer = 0;
+          this.difficulty = 2000; // Интервал появления врагов
+        },
+        tick: function (time, timeDelta) {
+          this.spawnTimer += timeDelta;
+          if (this.spawnTimer > this.difficulty) {
+            this.spawnEnemy();
+            this.spawnTimer = 0;
+            // Постепенное усложнение
+            if (this.difficulty > 800) this.difficulty -= 10;
+          }
+        },
+        spawnEnemy: function () {
+          const enemy = document.createElement('a-entity');
+          const isFast = Math.random() > 0.8; // 20% шанс быстрого врага
+          
+          // Случайная позиция в полусфере перед игроком
+          const angle = (Math.random() - 0.5) * Math.PI;
+          const radius = 25;
+          const x = Math.sin(angle) * radius;
+          const y = Math.random() * 4 + 0.5;
+          const z = -Math.cos(angle) * radius;
+
+          enemy.setAttribute('geometry', {
+            primitive: isFast ? 'sphere' : 'icosahedron',
+            radius: isFast ? 0.2 : 0.6
+          });
+
+          enemy.setAttribute('material', {
+            color: isFast ? '#ff00ff' : '#00d2ff',
+            emissive: isFast ? '#ff00ff' : '#00d2ff',
+            emissiveIntensity: 0.5
+          });
+
+          enemy.setAttribute('position', {x: x, y: y, z: z});
+          enemy.setAttribute('class', 'target');
+          
+          // Движение к игроку
+          enemy.setAttribute('animation', {
+            property: 'position',
+            to: {x: 0, y: 1.2, z: 0},
+            dur: isFast ? 3000 : 7000,
+            easing: 'linear'
+          });
+
+          enemy.addEventListener('animationcomplete', () => {
+            if (enemy.parentNode) enemy.parentNode.removeChild(enemy);
+          });
+
+          this.el.appendChild(enemy);
+        },
+        updateScore: function () {
+          this.score += 10;
+          this.scoreEl.setAttribute('value', 'SCORE: ' + this.score);
+        }
+      });
+
+      // Логика стрельбы для контроллеров Quest
+      AFRAME.registerComponent('vr-shooter', {
+        init: function () {
+          this.el.addEventListener('triggerdown', () => this.shoot());
+        },
+        shoot: function () {
+          const scene = document.querySelector('a-scene');
+          const gunTip = this.el.object3D;
+          
+          // Луч лазера
+          const beam = document.createElement('a-entity');
+          beam.setAttribute('geometry', { primitive: 'cylinder', radius: 0.01, height: 10 });
+          beam.setAttribute('material', { color: '#00ff00', emissive: '#00ff00', opacity: 0.8, transparent: true });
+          
+          // Позиционируем луч
+          const position = new THREE.Vector3();
+          gunTip.getWorldPosition(position);
+          const direction = new THREE.Vector3(0, 0, -1);
+          direction.applyQuaternion(gunTip.getWorldQuaternion(new THREE.Quaternion()));
+          
+          beam.object3D.position.copy(position);
+          beam.object3D.quaternion.copy(gunTip.getWorldQuaternion(new THREE.Quaternion()));
+          beam.object3D.rotateX(Math.PI / 2);
+          beam.object3D.translateY(-5);
+          
+          scene.appendChild(beam);
+
+          // Проверка попадания
+          const raycaster = new THREE.Raycaster(position, direction);
+          const intersects = raycaster.intersectObjects(scene.object3D.children, true);
+
+          for (let intersect of intersects) {
+            let obj = intersect.object.el;
+            if (obj && obj.classList.contains('target')) {
+              obj.parentNode.removeChild(obj);
+              scene.components['game-manager'].updateScore();
+              this.pulse(); // Вибрация
+              break;
+            }
+          }
+
+          setTimeout(() => { if(beam.parentNode) scene.removeChild(beam); }, 80);
+        },
+        pulse: function () {
+          const gamepad = this.el.components['tracked-controls']?.controller;
+          if (gamepad?.hapticActuators?.length > 0) {
+            gamepad.hapticActuators[0].pulse(0.6, 100);
+          }
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <a-scene game-manager environment="preset: contact; groundColor: #0b0b0b; grid: cross; skyColor: #050505">
+      
+      <a-assets>
+        <a-mixin id="hand" vr-shooter oculus-touch-controls laser-controls="hand: right; model: false"></a-mixin>
+      </a-assets>
+
+      <!-- Текстовый интерфейс в 3D -->
+      <a-entity position="0 2.5 -4">
+        <a-text id="score" value="SCORE: 0" align="center" color="#00ff00" width="8"></a-text>
+        <a-text value="DEFEND THE PLATFORM" position="0 -0.5 0" align="center" color="#fff" width="4" opacity="0.7"></a-text>
+      </a-entity>
+
+      <!-- Игрок и его руки -->
+      <a-entity id="rig">
+        <a-camera position="0 1.6 0" look-controls="enabled: false"></a-camera>
+        <a-entity id="left" mixin="hand" oculus-touch-controls="hand: left"></a-entity>
+        <a-entity id="right" mixin="hand" oculus-touch-controls="hand: right"></a-entity>
+      </a-entity>
+
+      <!-- Платформа под ногами -->
+      <a-cylinder position="0 0 0" radius="1.5" height="0.1" color="#111"></a-cylinder>
+      <a-ring position="0 0.06 0" radius-inner="1.4" radius-outer="1.5" rotation="-90 0 0" color="#00ff00"></a-ring>
+
+    </a-scene>
+  </body>
+</html>
