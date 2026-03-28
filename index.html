@@ -3,43 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UNRECORDED VR - ROBLOX EDITION</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-        #overlay {
-            position: absolute; width: 100%; height: 100%;
-            display: flex; flex-direction: column; justify-content: center;
-            align-items: center; background: radial-gradient(circle, #111 0%, #000 100%);
-            color: white; z-index: 100; transition: opacity 1s;
-        }
-        h1 { letter-spacing: 15px; text-shadow: 0 0 15px rgba(255,255,255,0.5); }
-        .info { color: #666; margin-bottom: 30px; text-align: center; line-height: 1.6; }
-        #vr-button-container { border: 1px solid #fff; padding: 5px; }
-        /* Кастомный курсор для меню */
-        canvas { cursor: crosshair; }
-    </style>
+    <title>Roblox Sandbox VR</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-<div id="overlay">
-    <h1>UNRECORDED</h1>
-    <div class="info">
-        VR TACTICAL ENGINE V6.0<br>
-        ЛЕВЫЙ СТИК: ХОДЬБА | ПРАВЫЙ ТРИГГЕР: ОГОНЬ<br>
-        ПОДКЛЮЧИТЕ ШЛЕМ И НАЖМИТЕ КНОПКУ НИЖЕ
+    <div id="instructions">
+        <h1>SANDBOX VR</h1>
+        <p>Нажми, чтобы начать</p>
+        <p><span class="kbd">WASD</span> — Ходьба | <span class="kbd">E</span> — Взять | <span class="kbd">Q</span> — Меню | <span class="kbd">R</span> — Удалить</p>
     </div>
-    <div id="vr-button-container"></div>
-</div>
 
-<script type="importmap">
-    {
-        "imports": {
-            "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+    <div id="sandbox-menu">
+        <h3>Спавн объектов</h3>
+        <div class="menu-item" id="spawn-box">Куб</div>
+        <div class="menu-item" id="spawn-sphere">Шар</div>
+        <div class="menu-item" id="spawn-cyl">Колонна</div>
+        <p style="font-size: 10px; color: #ccc;">Нажми Q чтобы закрыть</p>
+    </div>
+
+    <div id="hud">Наведи на предмет</div>
+    <div id="crosshair"></div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
         }
-    }
-</script>
-
-<script type="module" src="main.js"></script>
+    </script>
+    <script type="module" src="main.js"></script>
 </body>
 </html>
