@@ -2,181 +2,244 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Zombie Survival VR — Исправление ошибок</title>
-    
-    <!-- 1. Загружаем основной A-Frame -->
+    <title>Охотник на Фантомов VR</title>
+    <!-- Только чистый и стабильный A-Frame, никаких ломающихся плагинов -->
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
 
-    <!-- 2. Скрипт-мост для исправления совместимости THREE.js -->
     <script>
-      (function() {
-        // Проверяем наличие THREE и MathUtils (стандарт для A-Frame 1.4.2)
-        if (window.THREE && window.THREE.MathUtils) {
-          window.THREE.Math = window.THREE.Math || {};
-          // Копируем нужные функции туда, где их ищет aframe-extras
-          window.THREE.Math.degToRad = window.THREE.MathUtils.degToRad;
-          window.THREE.Math.radToDeg = window.THREE.MathUtils.radToDeg;
-          console.log("Совместимость MathUtils исправлена успешно.");
-        }
-      })();
-    </script>
-
-    <!-- 3. Загружаем дополнительные библиотеки после исправления -->
-    <script src="https://unpkg.com/aframe-environment-component@1.3.2/dist/aframe-environment-component.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v6.1.1/dist/aframe-extras.min.js"></script>
-    
-    <script>
-      // Система захвата предметов (кнопка Grip)
-      AFRAME.registerComponent('grab-system', {
+      // ==========================================
+      // 1. ГЕНЕРАТОР ЗАБРОШЕННОГО ГОРОДА
+      // ==========================================
+      AFRAME.registerComponent('ruins-generator', {
         init: function () {
-          this.grabbing = false;
-          this.grabbedEl = null;
+          const colors = ['#1a1a1a', '#222222', '#2a2a2a', '#111111'];
+          // Создаем 60 заброшенных зданий и руин вокруг игрока
+          for (let i = 0; i < 60; i++) {
+            let x = (Math.random() - 0.5) * 100;
+            let z = (Math.random() - 0.5) * 100;
+            
+            // Оставляем центр (зону появления) свободной
+            if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
 
-          this.el.addEventListener('gripdown', () => {
-            const collectibles = document.querySelectorAll('.grabbable');
-            let closest = null;
-            let minDist = 0.5;
+            let building = document.createElement('a-entity');
+            building.setAttribute('position', {x: x, y: 0, z: z});
 
-            collectibles.forEach(el => {
-              const dist = el.object3D.position.distanceTo(this.el.object3D.position);
-              if (dist < minDist) {
-                minDist = dist;
-                closest = el;
-              }
-            });
+            let height = Math.random() * 8 + 3;
+            let width = Math.random() * 6 + 3;
+            let depth = Math.random() * 6 + 3;
 
-            if (closest && !this.grabbing) {
-              this.grabbedEl = closest;
-              this.grabbedEl.setAttribute('position', '0 0 0');
-              this.el.appendChild(this.grabbedEl);
-              this.grabbing = true;
-            }
+            // Основной блок здания
+            let block = document.createElement('a-box');
+            block.setAttribute('width', width);
+            block.setAttribute('height', height);
+            block.setAttribute('depth', depth);
+            block.setAttribute('position', {x: 0, y: height/2, z: 0});
+            block.setAttribute('color', colors[Math.floor(Math.random() * colors.length)]);
+            block.setAttribute('roughness', '1');
+            building.appendChild(block);
+
+            this.el.appendChild(building);
+          }
+        }
+      });
+
+      // ==========================================
+      // 2. ИДЕАЛЬНОЕ ПЕРЕДВИЖЕНИЕ (БЕЗ ОШИБОК И ТОШНОТЫ)
+      // ==========================================
+      AFRAME.registerComponent('smooth-locomotion', {
+        init: function () {
+          this.rig = document.querySelector('#rig');
+          this.camera = document.querySelector('#camera');
+          this.x = 0; this.y = 0;
+          this.el.addEventListener('axismove', (evt) => {
+            this.x = evt.detail.axis[0];
+            this.y = evt.detail.axis[1];
           });
+        },
+        tick: function () {
+          if (Math.abs(this.x) < 0.1 && Math.abs(this.y) < 0.1) return; // Мертвая зона стика
+          
+          let direction = new THREE.Vector3(this.x, 0, this.y);
+          let rotation = this.camera.getAttribute('rotation');
+          
+          // Движение туда, куда повернута голова
+          direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(rotation.y));
+          
+          let pos = this.rig.getAttribute('position');
+          pos.x += direction.x * 0.08;
+          pos.z += direction.z * 0.08;
+          this.rig.setAttribute('position', pos);
+        }
+      });
 
-          this.el.addEventListener('gripup', () => {
-            if (this.grabbing && this.grabbedEl) {
-              const scene = document.querySelector('a-scene');
-              const worldPos = new THREE.Vector3();
-              this.grabbedEl.object3D.getWorldPosition(worldPos);
-              
-              scene.appendChild(this.grabbedEl);
-              this.grabbedEl.setAttribute('position', worldPos);
-              this.grabbedEl = null;
-              this.grabbing = false;
+      // Резкий поворот правым стиком (защита от укачивания)
+      AFRAME.registerComponent('snap-turn', {
+        init: function () {
+          this.rig = document.querySelector('#rig');
+          this.canTurn = true;
+          this.el.addEventListener('axismove', (evt) => {
+            let x = evt.detail.axis[0];
+            if (Math.abs(x) > 0.8 && this.canTurn) {
+              let rot = this.rig.getAttribute('rotation');
+              rot.y -= Math.sign(x) * 45; // Поворот ровно на 45 градусов
+              this.rig.setAttribute('rotation', rot);
+              this.canTurn = false;
+              setTimeout(() => this.canTurn = true, 400); // Задержка перед следующим поворотом
             }
           });
         }
       });
 
-      // Логика противников
-      AFRAME.registerComponent('zombie-ai', {
-        schema: { speed: {type: 'number', default: 0.01} },
+      // ==========================================
+      // 3. БОЕВАЯ СИСТЕМА И ВРАГИ
+      // ==========================================
+      AFRAME.registerComponent('phantom-ai', {
+        schema: { speed: {type: 'number', default: 0.03} },
         init: function () {
           this.player = document.querySelector('#camera');
           this.isDead = false;
           this.el.classList.add('target');
+          this.time = Math.random() * 100;
         },
         tick: function () {
           if (this.isDead || !this.player) return;
           
+          this.time += 0.05;
           let playerPos = new THREE.Vector3();
           this.player.object3D.getWorldPosition(playerPos);
           let currentPos = this.el.object3D.position;
           
+          // Поворот к игроку
           let angle = Math.atan2(playerPos.x - currentPos.x, playerPos.z - currentPos.z);
           this.el.object3D.rotation.y = angle;
+          
+          // Медленное жуткое движение + парение в воздухе
           this.el.object3D.translateZ(this.data.speed);
+          this.el.object3D.position.y = 1.5 + Math.sin(this.time) * 0.3;
         },
         die: function() {
           if (this.isDead) return;
           this.isDead = true;
-          this.el.setAttribute('animation', {
-            property: 'rotation',
-            to: '90 0 0',
-            dur: 500,
-            easing: 'easeInQuad'
-          });
+          
+          // Красивая анимация исчезновения
+          this.el.setAttribute('animation__scale', {property: 'scale', to: '0 0 0', dur: 400, easing: 'easeInBack'});
           setTimeout(() => {
             if (this.el.parentNode) this.el.parentNode.removeChild(this.el);
-          }, 3000);
+            // Спавним нового фантома, чтобы игра не кончалась
+            document.querySelector('a-scene').components['game-manager'].spawnPhantom();
+          }, 450);
         }
       });
 
-      // Логика стрельбы (кнопка Trigger)
-      AFRAME.registerComponent('shooter', {
+      AFRAME.registerComponent('blaster', {
         init: function () {
-          this.el.addEventListener('triggerdown', () => {
-            const raycaster = new THREE.Raycaster();
-            const pos = new THREE.Vector3();
-            this.el.object3D.getWorldPosition(pos);
-            const dir = new THREE.Vector3(0, 0, -1);
-            dir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
-            
-            raycaster.set(pos, dir);
-            const targets = document.querySelectorAll('.target');
-            const hits = raycaster.intersectObjects(Array.from(targets).map(t => t.object3D), true);
-            
-            if (hits.length > 0) {
-              let hitEntity = hits[0].object;
-              while (hitEntity && !hitEntity.el.hasAttribute('zombie-ai')) {
-                hitEntity = hitEntity.parent;
-              }
-              if (hitEntity) hitEntity.el.components['zombie-ai'].die();
-            }
-            this.flash();
-          });
+          this.el.addEventListener('triggerdown', () => this.shoot());
         },
-        flash: function() {
-          const l = document.createElement('a-light');
-          l.setAttribute('type', 'point');
-          l.setAttribute('intensity', '2');
-          l.setAttribute('color', 'yellow');
-          this.el.appendChild(l);
-          setTimeout(() => l.parentNode && this.el.removeChild(l), 50);
+        shoot: function () {
+          // Мощная ВИБРАЦИЯ контроллера
+          const gamepad = this.el.components['tracked-controls']?.controller;
+          if (gamepad && gamepad.hapticActuators && gamepad.hapticActuators.length > 0) {
+            gamepad.hapticActuators[0].pulse(1.0, 100); // Максимальная сила, 100 миллисекунд
+          }
+
+          // Луч лазера
+          const scene = document.querySelector('a-scene');
+          const laser = document.createElement('a-entity');
+          laser.setAttribute('geometry', { primitive: 'cylinder', radius: 0.01, height: 50 });
+          laser.setAttribute('material', { color: '#00FFFF', emissive: '#00FFFF', shader: 'flat' });
+          
+          const pos = new THREE.Vector3();
+          this.el.object3D.getWorldPosition(pos);
+          const quat = new THREE.Quaternion();
+          this.el.object3D.getWorldQuaternion(quat);
+          
+          laser.object3D.position.copy(pos);
+          laser.object3D.quaternion.copy(quat);
+          laser.object3D.rotateX(THREE.MathUtils.degToRad(90));
+          laser.object3D.translateY(25); // Смещаем луч вперед
+          
+          scene.appendChild(laser);
+          setTimeout(() => scene.removeChild(laser), 60);
+
+          // Проверка попадания
+          const raycaster = new THREE.Raycaster();
+          const dir = new THREE.Vector3(0, 0, -1);
+          dir.applyQuaternion(quat);
+          raycaster.set(pos, dir);
+          
+          const targets = document.querySelectorAll('.target');
+          const hits = raycaster.intersectObjects(Array.from(targets).map(t => t.object3D), true);
+          
+          if (hits.length > 0) {
+            let hitEntity = hits[0].object;
+            while (hitEntity && !hitEntity.el.hasAttribute('phantom-ai')) hitEntity = hitEntity.parent;
+            if (hitEntity) hitEntity.el.components['phantom-ai'].die();
+          }
+        }
+      });
+
+      // Спавнер врагов
+      AFRAME.registerComponent('game-manager', {
+        init: function () {
+          for(let i=0; i<10; i++) this.spawnPhantom();
+        },
+        spawnPhantom: function() {
+          const scene = document.querySelector('a-scene');
+          const phantom = document.createElement('a-entity');
+          
+          let angle = Math.random() * Math.PI * 2;
+          let radius = 15 + Math.random() * 10;
+          let x = Math.cos(angle) * radius;
+          let z = Math.sin(angle) * radius;
+
+          phantom.setAttribute('position', {x: x, y: 1.5, z: z});
+          phantom.setAttribute('phantom-ai', '');
+          
+          // Внешний вид "Теневого Фантома" (мрачно и круто)
+          phantom.innerHTML = `
+            <a-sphere radius="0.4" color="#000" opacity="0.8" roughness="1"></a-sphere>
+            <a-sphere position="0.15 0.1 0.3" radius="0.08" color="#FF0000" emissive="#FF0000" shader="flat"></a-sphere>
+            <a-sphere position="-0.15 0.1 0.3" radius="0.08" color="#FF0000" emissive="#FF0000" shader="flat"></a-sphere>
+          `;
+          scene.appendChild(phantom);
         }
       });
     </script>
   </head>
   <body>
-    <a-scene>
-      <a-entity environment="preset: forest; lighting: point; dressingAmount: 400"></a-entity>
+    <!-- Мрачная атмосфера с густым туманом -->
+    <a-scene fog="type: exponential; color: #0a0a0c; density: 0.08" game-manager>
+      
+      <!-- Генератор Заброшек -->
+      <a-entity ruins-generator></a-entity>
 
-      <!-- Игрок -->
-      <a-entity id="rig" movement-controls="speed: 0.15">
-        <a-entity id="camera" camera position="0 1.6 0" look-controls></a-entity>
+      <!-- Земля -->
+      <a-plane rotation="-90 0 0" width="200" height="200" color="#111" roughness="1"></a-plane>
+
+      <!-- Игрок и Управление -->
+      <a-entity id="rig" position="0 0 0">
+        <a-entity id="camera" camera position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-entity>
         
-        <a-entity id="leftHand" oculus-touch-controls="hand: left" grab-system>
-          <a-sphere radius="0.04" color="#ffccaa" opacity="0.8"></a-sphere>
+        <!-- Левая рука: Плавная ходьба -->
+        <a-entity id="leftHand" oculus-touch-controls="hand: left" smooth-locomotion>
+          <!-- Модель перчатки -->
+          <a-box width="0.1" height="0.1" depth="0.1" color="#333"></a-box>
         </a-entity>
         
-        <a-entity id="rightHand" oculus-touch-controls="hand: right" grab-system shooter>
-          <a-sphere radius="0.04" color="#ffccaa" opacity="0.8"></a-sphere>
+        <!-- Правая рука: Повороты и встроенный Бластер -->
+        <a-entity id="rightHand" oculus-touch-controls="hand: right" snap-turn blaster>
+          <!-- Модель кибер-бластера -->
+          <a-entity position="0 0 -0.05">
+            <a-box width="0.06" height="0.08" depth="0.2" color="#222"></a-box>
+            <a-cylinder position="0 0.02 -0.1" radius="0.015" height="0.15" rotation="90 0 0" color="#00FFFF" emissive="#00FFFF"></a-cylinder>
+          </a-entity>
         </a-entity>
       </a-entity>
 
-      <!-- Стойка с оружием -->
-      <a-entity position="0 0 -2">
-        <a-box position="0 0.5 0" width="1" height="1" depth="0.5" color="#333"></a-box>
-        
-        <a-entity class="grabbable" position="0 1.1 0">
-          <a-box width="0.05" height="0.1" depth="0.25" color="#111"></a-box>
-          <a-box position="0 -0.06 0.08" width="0.04" height="0.12" depth="0.04" color="#000"></a-box>
-        </a-entity>
+      <!-- Освещение -->
+      <a-light type="ambient" color="#222"></a-light>
+      <a-light type="directional" position="-1 2 1" color="#445566" intensity="0.5"></a-light>
 
-        <a-text value="GRIP: TAKE | TRIGGER: SHOOT" position="0 1.5 0.3" align="center" width="3"></a-text>
-      </a-entity>
-
-      <!-- Зомби -->
-      <a-entity zombie-ai="speed: 0.01" position="10 0 -15">
-        <a-capsule radius="0.3" height="1.8" color="#445533"></a-capsule>
-      </a-entity>
-
-      <a-entity zombie-ai="speed: 0.015" position="-10 0 -20">
-        <a-capsule radius="0.3" height="1.8" color="#334422"></a-capsule>
-      </a-entity>
-
-      <a-light type="ambient" intensity="0.5"></a-light>
-      <a-light type="directional" position="1 4 2" intensity="0.7"></a-light>
     </a-scene>
   </body>
 </html>
