@@ -3,232 +3,176 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hotel Silence - True VR Experience</title>
-    <!-- Библиотеки A-Frame и вспомогательные компоненты -->
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <!-- Исправленная версия extras для предотвращения ошибки degToRad -->
-    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-physics-system@v4.2.2/dist/aframe-physics-system.min.js"></script>
-    <script src="https://unpkg.com/aframe-event-set-component@5.0.0/dist/aframe-event-set-component.min.js"></script>
-    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
-    
+    <title>UNRECORDED VR</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
-        #interaction-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; color: #555; z-index: 10001;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            font-family: monospace; cursor: pointer;
-            transition: opacity 1s ease;
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+        #menu {
+            position: absolute;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; color: white; z-index: 100;
+        }
+        .btn {
+            background: transparent; color: white; border: 1px solid white;
+            padding: 20px 40px; cursor: pointer; letter-spacing: 5px;
         }
     </style>
 </head>
 <body>
 
-    <div id="interaction-overlay" onclick="startExperience()">
-        <p>НАЖМИТЕ ДЛЯ ЗАПУСКА VR</p>
-    </div>
+<div id="menu">
+    <h1>UNRECORDED VR</h1>
+    <div style="margin-bottom: 20px; color: #888;">ПОДКЛЮЧИТЕ ШЛЕМ</div>
+    <div id="vr-button-container"></div>
+</div>
 
-    <!-- Scene с включенным WebXR -->
-    <a-scene 
-        physics="debug: false; gravity: -9.8;"
-        renderer="antialias: true; colorManagement: true; exposure: 1.2; toneMapping: ACESFilmic;"
-        fog="type: exponential; color: #020202; density: 0.1"
-        loading-screen="enabled: false"
-        webxr="referenceSpaceType: local-floor">
+<script type="module">
+    // Импортируем VRButton для WebXR
+    import { VRButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/VRButton.js';
 
-        <a-assets>
-            <!-- Аудио ресурсы -->
-            <audio id="snd-ambient" src="https://cdn.pixabay.com/audio/2022/03/24/audio_73663675e0.mp3" preload="auto"></audio>
-            <audio id="snd-elevator-move" src="https://cdn.pixabay.com/audio/2022/03/10/audio_2484a95624.mp3" preload="auto"></audio>
-            <audio id="snd-door-open" src="https://cdn.pixabay.com/audio/2022/03/15/audio_2d89b3b5cc.mp3" preload="auto"></audio>
+    let scene, camera, renderer, clock;
+    let controller1, controller2;
+    let weaponGroup, flashlight;
+    let walls = [], targets = [], particles = [];
 
-            <!-- Общие материалы -->
-            <a-mixin id="marble" material="color: #ffffff; roughness: 0.1; metalness: 0.2"></a-mixin>
-            <a-mixin id="button-style" geometry="primitive: cylinder; radius: 0.04; height: 0.02" material="color: #333"></a-mixin>
-        </a-assets>
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x010101);
+        scene.fog = new THREE.FogExp2(0x010101, 0.05);
 
-        <!-- Плеер с поддержкой VR контроллеров -->
-        <a-entity id="rig" movement-controls="speed: 0.15; constrainToNavMesh: false">
-            <!-- Камера (Голова) -->
-            <a-entity id="camera" camera look-controls position="0 1.6 0">
-                <a-cursor id="cursor" raycaster="objects: .clickable" color="red" scale="0.5 0.5 0.5"></a-cursor>
-            </a-entity>
+        camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 100);
+        
+        // Рендерер с поддержкой XR
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true; // ВКЛЮЧАЕМ VR
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
 
-            <!-- Левая рука (Контроллер) -->
-            <a-entity id="left-controller" oculus-touch-controls="hand: left" laser-controls="hand: left" raycaster="objects: .clickable; far: 2; interval: 100"></a-entity>
-            
-            <!-- Правая рука (Контроллер) -->
-            <a-entity id="right-controller" oculus-touch-controls="hand: right" laser-controls="hand: right" raycaster="objects: .clickable; far: 2; interval: 100"></a-entity>
-        </a-entity>
+        // Кнопка входа в VR
+        document.getElementById('vr-button-container').appendChild(VRButton.createButton(renderer));
 
-        <!-- ЛОББИ -->
-        <a-entity id="lobby">
-            <!-- Пол -->
-            <a-plane static-body rotation="-90 0 0" width="50" height="50" mixin="marble"></a-plane>
-            
-            <!-- Стены холла -->
-            <a-box position="0 2 -8" width="10" height="4" depth="0.2" material="color: #111"></a-box>
-            <a-box position="-5 2 -3" rotation="0 90 0" width="10" height="4" depth="0.2" material="color: #111"></a-box>
-            
-            <!-- Ресепшн -->
-            <a-entity position="0 0 -5">
-                <a-box static-body width="3" height="1" depth="1" material="color: #2b1d0e"></a-box>
-                <a-text value="RECEPTION" position="0 1.2 0" align="center" width="3" color="white"></a-text>
-                <!-- Кнопка билета -->
-                <a-box id="ticket-btn" class="clickable" position="0 0.55 0.3" width="0.3" height="0.1" depth="0.3" color="green"
-                       event-set__mouseenter="color: #00ff00"
-                       event-set__mouseleave="color: green"></a-box>
-            </a-entity>
-        </a-entity>
+        const ambient = new THREE.AmbientLight(0xffffff, 0.02);
+        scene.add(ambient);
 
-        <!-- ЛИФТ -->
-        <a-entity id="elevator" position="5 0 -2">
-            <a-entity id="cab">
-                <!-- Стены кабины -->
-                <a-box static-body position="0 1.5 -1.5" width="3" height="3" depth="0.1" material="color: #222"></a-box>
-                <a-box static-body position="-1.5 1.5 0" rotation="0 90 0" width="3" height="3" depth="0.1" material="color: #222"></a-box>
-                <a-box static-body position="1.5 1.5 0" rotation="0 -90 0" width="3" height="3" depth="0.1" material="color: #222"></a-box>
-                <a-plane rotation="-90 0 0" width="3" height="3" position="0 0.01 0" material="color: #111"></a-plane>
-                
-                <!-- Двери лифта -->
-                <a-entity id="door-l" position="-0.75 1.5 1.5">
-                    <a-box width="1.5" height="3" depth="0.1" material="color: #444; metalness: 0.5"></a-box>
-                </a-entity>
-                <a-entity id="door-r" position="0.75 1.5 1.5">
-                    <a-box width="1.5" height="3" depth="0.1" material="color: #444; metalness: 0.5"></a-box>
-                </a-entity>
+        clock = new THREE.Clock();
 
-                <!-- Панель управления лифтом -->
-                <a-entity position="1.4 1.2 0" rotation="0 -90 0">
-                    <a-plane width="0.4" height="1" color="#111">
-                        <a-text id="floor-display" value="0" align="center" position="0 0.4 0.01" color="red" font="monoid"></a-text>
-                        <!-- Контейнер для динамических кнопок -->
-                        <a-entity id="btns" position="0 -0.1 0.02"></a-entity>
-                    </a-plane>
-                </a-entity>
+        // Настройка контроллеров
+        controller1 = renderer.xr.getController(0);
+        controller1.addEventListener('selectstart', shoot); // Стрельба на курок
+        scene.add(controller1);
 
-                <!-- Освещение внутри лифта -->
-                <a-light type="point" intensity="0.5" distance="4" color="#fff" position="0 2.5 0"></a-light>
-            </a-entity>
-        </a-entity>
+        buildLevel();
+        setupWeapon();
 
-        <!-- Освещение сцены -->
-        <a-light type="ambient" intensity="0.3"></a-light>
-        <a-light type="point" position="0 3 0" intensity="0.8"></a-light>
+        renderer.setAnimationLoop(render);
+    }
 
-    </a-scene>
+    function setupWeapon() {
+        // Оружие теперь привязано к контроллеру, а не к камере
+        weaponGroup = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0x111, metalness: 0.8 });
+        const slide = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.06, 0.2), mat);
+        
+        flashlight = new THREE.SpotLight(0xfff5e6, 5, 20, Math.PI/6);
+        flashlight.castShadow = true;
+        
+        weaponGroup.add(slide, flashlight);
+        flashlight.position.set(0, 0, 0);
+        flashlight.target.position.set(0, 0, -1);
+        weaponGroup.add(flashlight.target);
 
-    <script>
-        const state = {
-            hasTicket: false,
-            moving: false,
-            currentFloor: 0,
-            interactionReady: false
-        };
+        controller1.add(weaponGroup);
+    }
 
-        const els = {
-            doorL: document.querySelector('#door-l'),
-            doorR: document.querySelector('#door-r'),
-            display: document.querySelector('#floor-display'),
-            sndDoor: document.querySelector('#snd-door-open'),
-            sndMove: document.querySelector('#snd-elevator-move'),
-            overlay: document.querySelector('#interaction-overlay'),
-            ambient: document.querySelector('#snd-ambient')
-        };
-
-        // Запуск после первого клика
-        function startExperience() {
-            state.interactionReady = true;
-            els.overlay.style.display = 'none';
-            els.ambient.volume = 0.2;
-            els.ambient.play().catch(err => console.log("Audio play blocked", err));
-            // Открываем двери при входе
-            setTimeout(() => toggleDoors(true), 1000);
+    // Твоя функция генерации текстур (без изменений)
+    function createNoiseTexture(color1, color2, scale) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512; canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = color1;
+        ctx.fillRect(0, 0, 512, 512);
+        for(let i=0; i<5000; i++) {
+            ctx.fillStyle = Math.random() > 0.5 ? color2 : color1;
+            ctx.fillRect(Math.random()*512, Math.random()*512, scale, scale);
         }
+        return new THREE.CanvasTexture(canvas);
+    }
 
-        // Анимация дверей
-        function toggleDoors(open) {
-            if (!state.interactionReady) return;
-            els.sndDoor.currentTime = 0;
-            els.sndDoor.play().catch(() => {});
-            const targetX = open ? 1.4 : 0;
-            
-            els.doorL.setAttribute('animation', {
-                property: 'position',
-                to: `${-0.75 - targetX} 1.5 1.5`,
-                dur: 2000,
-                easing: 'easeInOutQuad'
-            });
-            els.doorR.setAttribute('animation', {
-                property: 'position',
-                to: `${0.75 + targetX} 1.5 1.5`,
-                dur: 2000,
-                easing: 'easeInOutQuad'
+    function buildLevel() {
+        const floorTex = createNoiseTexture('#1a1a1a', '#222', 2);
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshStandardMaterial({map: floorTex}));
+        floor.rotation.x = -Math.PI/2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        const wallMat = new THREE.MeshStandardMaterial({ map: createNoiseTexture('#2a2a2a', '#111', 4) });
+        
+        // Упрощенная расстановка стен для VR
+        for(let i=0; i<10; i++) {
+            const wall = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 1), wallMat);
+            wall.position.set(Math.random()*20-10, 2, Math.random()*20-10);
+            scene.add(wall);
+            walls.push(new THREE.Box3().setFromObject(wall));
+        }
+    }
+
+    function shoot() {
+        // Raycast идет от контроллера (куда направлена рука)
+        const tempMatrix = new THREE.Matrix4();
+        tempMatrix.extractRotation(controller1.matrixWorld);
+        
+        const raycaster = new THREE.Raycaster();
+        raycaster.ray.origin.setFromMatrixPosition(controller1.matrixWorld);
+        raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+        // Вспышка
+        const flash = new THREE.PointLight(0xffaa00, 10, 2);
+        flash.position.copy(weaponGroup.position);
+        controller1.add(flash);
+        setTimeout(() => controller1.remove(flash), 40);
+
+        const hits = raycaster.intersectObjects(scene.children, true);
+        if(hits.length > 0 && hits[0].object.type === 'Mesh') {
+            createImpact(hits[0].point, hits[0].face.normal);
+        }
+    }
+
+    function createImpact(pos, normal) {
+        const pCount = 15;
+        const geo = new THREE.SphereGeometry(0.02, 4, 4);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+        for(let i=0; i<pCount; i++) {
+            const p = new THREE.Mesh(geo, mat);
+            p.position.copy(pos);
+            scene.add(p);
+            particles.push({ 
+                mesh: p, 
+                vel: new THREE.Vector3(normal.x + Math.random()-0.5, 1, normal.z + Math.random()-0.5).multiplyScalar(0.05),
+                life: 1.0 
             });
         }
+    }
 
-        // Динамическая генерация кнопок этажей
-        const btnContainer = document.querySelector('#btns');
-        for(let i = 1; i <= 5; i++) {
-            const btn = document.createElement('a-entity');
-            btn.setAttribute('mixin', 'button-style');
-            btn.setAttribute('class', 'clickable');
-            btn.setAttribute('position', `0 ${0.25 - (i * 0.12)} 0`);
-            btn.setAttribute('rotation', '90 0 0');
-            
-            // Текст на кнопке
-            btn.innerHTML = `<a-text value="${i}" align="center" position="0 0.02 0" rotation="-90 0 0" width="2" color="white"></a-text>`;
-            
-            btn.addEventListener('click', () => {
-                if(!state.hasTicket) {
-                    // Используем внутриигровой индикатор вместо системного alert в VR
-                    els.display.setAttribute('value', 'ERR');
-                    setTimeout(() => els.display.setAttribute('value', state.currentFloor), 2000);
-                    return;
-                }
-                goToFloor(i);
-            });
-            btnContainer.appendChild(btn);
+    function render() {
+        const delta = clock.getDelta();
+        
+        // Обновление частиц
+        for(let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.mesh.position.add(p.vel);
+            p.vel.y -= 0.002;
+            p.life -= 0.02;
+            if(p.life <= 0) {
+                scene.remove(p.mesh);
+                particles.splice(i, 1);
+            }
         }
 
-        // Логика перемещения лифта
-        function goToFloor(floor) {
-            if(state.moving || state.currentFloor === floor) return;
-            state.moving = true;
-            
-            // Закрываем двери перед началом движения
-            toggleDoors(false);
-            
-            setTimeout(() => {
-                els.sndMove.play().catch(() => {});
-                let count = state.currentFloor;
-                const step = count < floor ? 1 : -1;
-                
-                const moveInterval = setInterval(() => {
-                    count += step;
-                    els.display.setAttribute('value', count);
-                    
-                    if(count === floor) {
-                        clearInterval(moveInterval);
-                        state.currentFloor = floor;
-                        state.moving = false;
-                        els.sndMove.pause();
-                        // Двери открываются по прибытии
-                        toggleDoors(true);
-                    }
-                }, 1500); // 1.5 секунды на этаж
-            }, 2200);
-        }
+        renderer.render(scene, camera);
+    }
 
-        // Получение билета на ресепшене
-        document.querySelector('#ticket-btn').addEventListener('click', function() {
-            state.hasTicket = true;
-            this.setAttribute('material', 'color', '#00ff00');
-            // Визуальный фидбек
-            els.display.setAttribute('value', 'OK');
-            setTimeout(() => els.display.setAttribute('value', state.currentFloor), 1000);
-        });
-    </script>
+    init();
+</script>
 </body>
 </html>
