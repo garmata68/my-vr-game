@@ -1,196 +1,158 @@
-import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
-import { VRButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/VRButton.js';
-import { OBJLoader } from 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/OBJLoader.js';
-import { MTLLoader } from 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/MTLLoader.js';
+import * as THREE from 'three';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
 
-let scene, camera, renderer, clock, playerGroup;
-let controllerRight, controllerLeft;
-let gunGroup, playerBody;
-let walls = [], particles = [];
+let scene, camera, renderer, controls, raycaster;
+let playerSkin = null;
+let clock = new THREE.Clock();
+let heldItem = null;
+const interactables = [];
 
-// Параметры движения (Стик на левом контроллере)
-let moveSpeed = 2.5;
+const velocity = new THREE.Vector3();
+const direction = new THREE.Vector3();
+const moveState = { forward: false, backward: false, left: false, right: false };
+
+init();
 
 function init() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x020202);
-    scene.fog = new THREE.FogExp2(0x020202, 0.08);
+    scene.background = new THREE.Color(0xa0d8ef);
+    scene.fog = new THREE.Fog(0xa0d8ef, 20, 100);
 
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 100);
-    
-    playerGroup = new THREE.Group();
-    playerGroup.add(camera);
-    scene.add(playerGroup);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    scene.add(camera);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.xr.enabled = true;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    
     document.body.appendChild(renderer.domElement);
     document.body.appendChild(VRButton.createButton(renderer));
 
-    const light = new THREE.AmbientLight(0xffffff, 0.05);
-    scene.add(light);
+    controls = new PointerLockControls(camera, document.body);
+    raycaster = new THREE.Raycaster();
 
-    setupControllers();
-    buildWorld();
+    const inst = document.getElementById('instructions');
+    inst.addEventListener('click', () => controls.lock());
+    controls.addEventListener('lock', () => { inst.style.display = 'none'; document.getElementById('hud').style.display = 'block'; });
+    controls.addEventListener('unlock', () => { inst.style.display = 'flex'; });
+
+    setupLights();
+    createMap();
+    loadRobloxSkin();
+    setupInput();
     
-    // ЗАГРУЗКА ТВОЕЙ МОДЕЛИ РОБЛОКС
-    loadRobloxAsset();
+    // Привязка кнопок меню
+    document.getElementById('spawn-box').onclick = () => spawnObject('box');
+    document.getElementById('spawn-sphere').onclick = () => spawnObject('sphere');
+    document.getElementById('spawn-cyl').onclick = () => spawnObject('cylinder');
 
-    clock = new THREE.Clock();
-    renderer.setAnimationLoop(update);
+    renderer.setAnimationLoop(animate);
 }
 
-function setupControllers() {
-    // Правая рука (для оружия)
-    controllerRight = renderer.xr.getController(1);
-    controllerRight.addEventListener('selectstart', shoot);
-    playerGroup.add(controllerRight);
-
-    // Левая рука (ходьба)
-    controllerLeft = renderer.xr.getController(0);
-    playerGroup.add(controllerLeft);
+function setupLights() {
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    sun.position.set(20, 40, 20);
+    sun.castShadow = true;
+    scene.add(sun);
 }
 
-function loadRobloxAsset() {
+function createMap() {
+    const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(1000, 1000),
+        new THREE.MeshStandardMaterial({ color: 0x6ab04c })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+}
+
+function loadRobloxSkin() {
     const mtlLoader = new MTLLoader();
-    // Путь к твоей папке на GitHub
-    mtlLoader.setPath('./Handle1_diff/'); 
-    
-    mtlLoader.load('roblox.mtl', (materials) => {
+    mtlLoader.load('skin.mtl', (materials) => {
         materials.preload();
-        const objLoader = new OBJLoader();
-        objLoader.setMaterials(materials);
-        objLoader.setPath('./Handle1_diff/');
-        
-        objLoader.load('roblox.obj', (object) => {
-            // Масштабируем, так как в Роблоксе всё гигантское
-            object.scale.set(0.02, 0.02, 0.02);
-            
-            // Клонируем модель: одну для руки (пушка), одну для тела (скин)
-            
-            // 1. Оружие в правую руку
-            gunGroup = object.clone();
-            gunGroup.rotation.y = Math.PI; // Разворот стволом вперед
-            controllerRight.add(gunGroup);
-            
-            // Добавляем реалистичный фонарь на твою пушку
-            const flashlight = new THREE.SpotLight(0xffffff, 10, 20, Math.PI/6, 0.5);
-            flashlight.castShadow = true;
-            gunGroup.add(flashlight);
-            gunGroup.add(flashlight.target);
-            flashlight.target.position.set(0, 0, -1);
-
-            // 2. Скин персонажа
-            playerBody = object.clone();
-            scene.add(playerBody);
-            
-            console.log("Твой Роблокс скин и пушка загружены!");
+        new OBJLoader().setMaterials(materials).load('skin.obj', (obj) => {
+            playerSkin = obj;
+            playerSkin.scale.set(0.045, 0.045, 0.045);
+            playerSkin.position.set(0, -1.45, -0.2); // Настройка положения рук
+            playerSkin.rotation.y = Math.PI;
+            camera.add(playerSkin);
+        });
+    }, undefined, () => {
+        new OBJLoader().load('skin.obj', (obj) => {
+            playerSkin = obj;
+            playerSkin.scale.set(0.045, 0.045, 0.045);
+            playerSkin.position.set(0, -1.45, -0.2);
+            camera.add(playerSkin);
         });
     });
 }
 
-function buildWorld() {
-    // Пол
-    const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(100, 100),
-        new THREE.MeshStandardMaterial({ color: 0x111111 })
-    );
-    floor.rotation.x = -Math.PI/2;
-    floor.receiveShadow = true;
-    scene.add(floor);
-
-    // Стены
-    const wallGeo = new THREE.BoxGeometry(4, 4, 0.5);
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-    for(let i=0; i<20; i++) {
-        const wall = new THREE.Mesh(wallGeo, wallMat);
-        wall.position.set(Math.random()*40-20, 2, Math.random()*40-20);
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        scene.add(wall);
-    }
+function spawnObject(type) {
+    let geo = type === 'box' ? new THREE.BoxGeometry(1,1,1) : new THREE.SphereGeometry(0.6);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff }));
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    mesh.position.addVectors(camera.position, dir.multiplyScalar(4));
+    mesh.position.y = 0.5;
+    mesh.castShadow = true;
+    mesh.userData.interactable = true;
+    scene.add(mesh);
+    interactables.push(mesh);
 }
 
-function shoot() {
-    // Вспышка
-    const flash = new THREE.PointLight(0xffaa44, 20, 3);
-    controllerRight.add(flash);
-    setTimeout(() => controllerRight.remove(flash), 50);
-
-    // Raycast стрельбы
-    const tempMatrix = new THREE.Matrix4();
-    tempMatrix.extractRotation(controllerRight.matrixWorld);
-    const raycaster = new THREE.Raycaster();
-    raycaster.ray.origin.setFromMatrixPosition(controllerRight.matrixWorld);
-    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-
-    const hits = raycaster.intersectObjects(scene.children);
-    if(hits.length > 0) {
-        createImpact(hits[0].point);
-    }
-}
-
-function createImpact(pos) {
-    const geo = new THREE.SphereGeometry(0.02, 4, 4);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-    for(let i=0; i<5; i++) {
-        const p = new THREE.Mesh(geo, mat);
-        p.position.copy(pos);
-        scene.add(p);
-        particles.push({ mesh: p, life: 1.0, vel: new THREE.Vector3((Math.random()-0.5)*0.1, 0.1, (Math.random()-0.5)*0.1) });
-    }
-}
-
-function handleMovement(delta) {
-    const session = renderer.xr.getSession();
-    if (!session) return;
-
-    for (const source of session.inputSources) {
-        if (source.gamepad && source.handedness === 'left') {
-            const axes = source.gamepad.axes; // Стик
-            const direction = new THREE.Vector3();
-            camera.getWorldDirection(direction);
-            direction.y = 0;
-            direction.normalize();
-
-            const side = new THREE.Vector3().crossVectors(THREE.Object3D.DefaultUp, direction).normalize();
-
-            // Вперед/назад (ось 3), Влево/вправо (ось 2)
-            playerGroup.position.addScaledVector(direction, -axes[3] * moveSpeed * delta);
-            playerGroup.position.addScaledVector(side, -axes[2] * moveSpeed * delta);
+function setupInput() {
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyW') moveState.forward = true;
+        if (e.code === 'KeyS') moveState.backward = true;
+        if (e.code === 'KeyA') moveState.left = true;
+        if (e.code === 'KeyD') moveState.right = true;
+        if (e.code === 'KeyE') {
+            if (heldItem) { scene.attach(heldItem); heldItem = null; }
+            else {
+                raycaster.setFromCamera({x:0, y:0}, camera);
+                const hits = raycaster.intersectObjects(interactables);
+                if (hits.length > 0 && hits[0].distance < 4) {
+                    heldItem = hits[0].object;
+                    camera.add(heldItem);
+                    heldItem.position.set(0.6, -0.4, -1.2);
+                }
+            }
         }
-    }
+        if (e.code === 'KeyQ') {
+            const m = document.getElementById('sandbox-menu');
+            m.style.display = m.style.display === 'block' ? 'none' : 'block';
+            if (m.style.display === 'block') controls.unlock(); else controls.lock();
+        }
+    });
+    document.addEventListener('keyup', (e) => {
+        if (e.code === 'KeyW') moveState.forward = false;
+        if (e.code === 'KeyS') moveState.backward = false;
+        if (e.code === 'KeyA') moveState.left = false;
+        if (e.code === 'KeyD') moveState.right = false;
+    });
 }
 
-function update() {
+function animate() {
     const delta = clock.getDelta();
-    handleMovement(delta);
-
-    // Скин следует за камерой
-    if(playerBody) {
-        playerBody.position.copy(playerGroup.position);
-        playerBody.position.y = 0;
+    if (controls.isLocked || renderer.xr.isPresenting) {
+        velocity.x -= velocity.x * 10.0 * delta;
+        velocity.z -= velocity.z * 10.0 * delta;
+        direction.z = Number(moveState.forward) - Number(moveState.backward);
+        direction.x = Number(moveState.right) - Number(moveState.left);
+        direction.normalize();
+        if (moveState.forward || moveState.backward) velocity.z -= direction.z * 100 * delta;
+        if (moveState.left || moveState.right) velocity.x -= direction.x * 100 * delta;
+        controls.moveRight(-velocity.x * delta);
+        controls.moveForward(-velocity.z * delta);
         
-        const dir = new THREE.Vector3();
-        camera.getWorldDirection(dir);
-        playerBody.rotation.y = Math.atan2(dir.x, dir.z);
-    }
-
-    // Частицы
-    for(let i=particles.length-1; i>=0; i--) {
-        particles[i].mesh.position.add(particles[i].vel);
-        particles[i].life -= 0.05;
-        if(particles[i].life <= 0) {
-            scene.remove(particles[i].mesh);
-            particles.splice(i, 1);
+        if (playerSkin && direction.length() > 0) {
+            playerSkin.position.y = -1.45 + Math.sin(performance.now()*0.008) * 0.02;
         }
     }
-
     renderer.render(scene, camera);
 }
-
-init();
