@@ -2,259 +2,44 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>UNRECORDED VR - ULTIMATE</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UNRECORDED VR - ROBLOX EDITION</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
         #overlay {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: white; text-align: center; z-index: 10;
+            position: absolute; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center;
+            align-items: center; background: radial-gradient(circle, #111 0%, #000 100%);
+            color: white; z-index: 100; transition: opacity 1s;
         }
-        .btn {
-            background: #fff; color: #000; border: none; padding: 20px 50px;
-            font-weight: bold; cursor: pointer; letter-spacing: 2px;
-        }
+        h1 { letter-spacing: 15px; text-shadow: 0 0 15px rgba(255,255,255,0.5); }
+        .info { color: #666; margin-bottom: 30px; text-align: center; line-height: 1.6; }
+        #vr-button-container { border: 1px solid #fff; padding: 5px; }
+        /* Кастомный курсор для меню */
+        canvas { cursor: crosshair; }
     </style>
 </head>
 <body>
 
 <div id="overlay">
-    <h1 style="letter-spacing: 15px;">UNRECORDED VR</h1>
-    <p style="color: #666;">TACTICAL SIMULATION V6.0</p>
-    <div id="vr-btn-slot"></div>
+    <h1>UNRECORDED</h1>
+    <div class="info">
+        VR TACTICAL ENGINE V6.0<br>
+        ЛЕВЫЙ СТИК: ХОДЬБА | ПРАВЫЙ ТРИГГЕР: ОГОНЬ<br>
+        ПОДКЛЮЧИТЕ ШЛЕМ И НАЖМИТЕ КНОПКУ НИЖЕ
+    </div>
+    <div id="vr-button-container"></div>
 </div>
 
-<script type="module">
-    import { VRButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/VRButton.js';
-
-    let scene, camera, renderer, clock;
-    let playerGroup, controllerRight, controllerLeft;
-    let gun, flashlight, muzzleFlash;
-    let walls = [], targets = [], particles = [];
-    
-    // Параметры движения
-    let moveSpeed = 1.5;
-
-    init();
-
-    function init() {
-        scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x020202);
-        scene.fog = new THREE.FogExp2(0x020202, 0.08);
-
-        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 50);
-        
-        // Группа игрока для перемещения в VR
-        playerGroup = new THREE.Group();
-        playerGroup.add(camera);
-        scene.add(playerGroup);
-
-        renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true;
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        document.body.appendChild(renderer.domElement);
-
-        document.getElementById('vr-btn-slot').appendChild(VRButton.createButton(renderer));
-
-        clock = new THREE.Clock();
-
-        setupLights();
-        setupControllers();
-        buildModernLevel();
-        
-        renderer.setAnimationLoop(update);
-    }
-
-    function setupLights() {
-        const ambient = new THREE.AmbientLight(0xffffff, 0.01);
-        scene.add(ambient);
-    }
-
-    function setupControllers() {
-        // Правая рука (Оружие)
-        controllerRight = renderer.xr.getController(1);
-        controllerRight.addEventListener('selectstart', shoot);
-        playerGroup.add(controllerRight);
-
-        // Левая рука (Просто рука/фонарь)
-        controllerLeft = renderer.xr.getController(0);
-        playerGroup.add(controllerLeft);
-
-        // Модели рук/оружия
-        createTacticalGun();
-        createTacticalHand();
-    }
-
-    function createTacticalGun() {
-        gun = new THREE.Group();
-        const mat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.8 });
-        
-        // Корпус
-        const body = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.18), mat);
-        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.1, 0.04), mat);
-        grip.position.set(0, -0.06, 0.05);
-        grip.rotation.x = 0.2;
-        
-        // Фонарь
-        flashlight = new THREE.SpotLight(0xffffff, 8, 15, Math.PI/7, 0.4, 1);
-        flashlight.castShadow = true;
-        flashlight.shadow.bias = -0.0001;
-        
-        const flModel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.06), mat);
-        flModel.rotation.x = Math.PI/2;
-        flModel.position.set(0, -0.03, -0.08);
-        
-        flashlight.position.set(0, -0.03, -0.1);
-        flashlight.target.position.set(0, -0.03, -1);
-        
-        // Вспышка
-        muzzleFlash = new THREE.PointLight(0xffaa44, 0, 3);
-        muzzleFlash.position.set(0, 0, -0.15);
-
-        gun.add(body, grip, flModel, flashlight, flashlight.target, muzzleFlash);
-        controllerRight.add(gun);
-    }
-
-    function createTacticalHand() {
-        const handGeo = new THREE.BoxGeometry(0.04, 0.04, 0.1);
-        const handMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-        const hand = new THREE.Mesh(handGeo, handMat);
-        controllerLeft.add(hand);
-    }
-
-    function buildModernLevel() {
-        // Процедурный пол
-        const floorTex = createNoiseTexture('#111', '#151515', 1);
-        const floor = new THREE.Mesh(
-            new THREE.PlaneGeometry(100, 100),
-            new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.8 })
-        );
-        floor.rotation.x = -Math.PI/2;
-        floor.receiveShadow = true;
-        scene.add(floor);
-
-        // Стены с "бетонной" текстурой
-        const wallMat = new THREE.MeshStandardMaterial({ 
-            map: createNoiseTexture('#333', '#222', 4),
-            bumpMap: createNoiseTexture('#111', '#999', 2),
-            bumpScale: 0.02
-        });
-
-        for(let i=0; i<15; i++) {
-            const h = 3 + Math.random()*2;
-            const wall = new THREE.Mesh(new THREE.BoxGeometry(4, h, 0.5), wallMat);
-            wall.position.set(Math.random()*30-15, h/2, Math.random()*30-15);
-            wall.rotation.y = Math.random() * Math.PI;
-            wall.castShadow = true;
-            wall.receiveShadow = true;
-            scene.add(wall);
-            walls.push(new THREE.Box3().setFromObject(wall));
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
         }
-    }
-
-    function createNoiseTexture(c1, c2, s) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 256; canvas.height = 256;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = c1; ctx.fillRect(0,0,256,256);
-        ctx.fillStyle = c2;
-        for(let i=0; i<5000; i++) ctx.fillRect(Math.random()*256, Math.random()*256, s, s);
-        return new THREE.CanvasTexture(canvas);
-    }
-
-    function shoot() {
-        // Отдача
-        gun.position.z = 0.05;
-        muzzleFlash.intensity = 15;
-        
-        const tempMatrix = new THREE.Matrix4();
-        tempMatrix.extractRotation(controllerRight.matrixWorld);
-        
-        const raycaster = new THREE.Raycaster();
-        raycaster.ray.origin.setFromMatrixPosition(controllerRight.matrixWorld);
-        raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-
-        const hits = raycaster.intersectObjects(scene.children);
-        if(hits.length > 0) {
-            createImpact(hits[0].point, hits[0].face.normal);
-        }
-
-        setTimeout(() => { muzzleFlash.intensity = 0; }, 50);
-    }
-
-    function createImpact(pos, normal) {
-        const count = 10;
-        for(let i=0; i<count; i++) {
-            const p = new THREE.Mesh(
-                new THREE.BoxGeometry(0.01, 0.01, 0.01),
-                new THREE.MeshBasicMaterial({ color: 0xffaa00 })
-            );
-            p.position.copy(pos);
-            scene.add(p);
-            particles.push({
-                mesh: p,
-                vel: new THREE.Vector3(
-                    (Math.random()-0.5)*0.1 + normal.x*0.1,
-                    (Math.random()-0.5)*0.1 + normal.y*0.1,
-                    (Math.random()-0.5)*0.1 + normal.z*0.1
-                ),
-                life: 1.0
-            });
-        }
-    }
-
-    function handleMovement(delta) {
-        const session = renderer.xr.getSession();
-        if (!session) return;
-
-        // Опрашиваем геймпады VR
-        for (const source of session.inputSources) {
-            if (source.gamepad && source.handedness === 'left') {
-                const axes = source.gamepad.axes; // 2 - влево/вправо, 3 - вперед/назад
-                
-                // Направление взгляда (куда идем)
-                const direction = new THREE.Vector3();
-                camera.getWorldDirection(direction);
-                direction.y = 0;
-                direction.normalize();
-
-                const side = new THREE.Vector3().crossVectors(camera.up, direction).normalize();
-
-                // Применяем ввод со стика (оси 2 и 3 обычно отвечают за левый стик)
-                const forward = -axes[3]; 
-                const strafe = -axes[2];
-
-                playerGroup.position.addScaledVector(direction, forward * moveSpeed * delta);
-                playerGroup.position.addScaledVector(side, strafe * moveSpeed * delta);
-            }
-        }
-    }
-
-    function update() {
-        const delta = clock.getDelta();
-
-        // Плавная отдача оружия
-        gun.position.z = THREE.MathUtils.lerp(gun.position.z, 0, 0.2);
-
-        // Движение
-        handleMovement(delta);
-
-        // Частицы
-        for(let i=particles.length-1; i>=0; i--) {
-            let p = particles[i];
-            p.mesh.position.add(p.vel);
-            p.life -= 0.02;
-            if(p.life <= 0) {
-                scene.remove(p.mesh);
-                particles.splice(i, 1);
-            }
-        }
-
-        renderer.render(scene, camera);
     }
 </script>
+
+<script type="module" src="main.js"></script>
 </body>
 </html>
