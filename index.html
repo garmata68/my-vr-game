@@ -1,245 +1,234 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Охотник на Фантомов VR</title>
-    <!-- Только чистый и стабильный A-Frame, никаких ломающихся плагинов -->
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Silence - True VR Experience</title>
+    <!-- Библиотеки A-Frame и вспомогательные компоненты -->
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <!-- Исправленная версия extras для предотвращения ошибки degToRad -->
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-physics-system@v4.2.2/dist/aframe-physics-system.min.js"></script>
+    <script src="https://unpkg.com/aframe-event-set-component@5.0.0/dist/aframe-event-set-component.min.js"></script>
+    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
+    
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        #interaction-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; color: #555; z-index: 10001;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            font-family: monospace; cursor: pointer;
+            transition: opacity 1s ease;
+        }
+    </style>
+</head>
+<body>
 
-    <script>
-      // ==========================================
-      // 1. ГЕНЕРАТОР ЗАБРОШЕННОГО ГОРОДА
-      // ==========================================
-      AFRAME.registerComponent('ruins-generator', {
-        init: function () {
-          const colors = ['#1a1a1a', '#222222', '#2a2a2a', '#111111'];
-          // Создаем 60 заброшенных зданий и руин вокруг игрока
-          for (let i = 0; i < 60; i++) {
-            let x = (Math.random() - 0.5) * 100;
-            let z = (Math.random() - 0.5) * 100;
+    <div id="interaction-overlay" onclick="startExperience()">
+        <p>НАЖМИТЕ ДЛЯ ЗАПУСКА VR</p>
+    </div>
+
+    <!-- Scene с включенным WebXR -->
+    <a-scene 
+        physics="debug: false; gravity: -9.8;"
+        renderer="antialias: true; colorManagement: true; exposure: 1.2; toneMapping: ACESFilmic;"
+        fog="type: exponential; color: #020202; density: 0.1"
+        loading-screen="enabled: false"
+        webxr="referenceSpaceType: local-floor">
+
+        <a-assets>
+            <!-- Аудио ресурсы -->
+            <audio id="snd-ambient" src="https://cdn.pixabay.com/audio/2022/03/24/audio_73663675e0.mp3" preload="auto"></audio>
+            <audio id="snd-elevator-move" src="https://cdn.pixabay.com/audio/2022/03/10/audio_2484a95624.mp3" preload="auto"></audio>
+            <audio id="snd-door-open" src="https://cdn.pixabay.com/audio/2022/03/15/audio_2d89b3b5cc.mp3" preload="auto"></audio>
+
+            <!-- Общие материалы -->
+            <a-mixin id="marble" material="color: #ffffff; roughness: 0.1; metalness: 0.2"></a-mixin>
+            <a-mixin id="button-style" geometry="primitive: cylinder; radius: 0.04; height: 0.02" material="color: #333"></a-mixin>
+        </a-assets>
+
+        <!-- Плеер с поддержкой VR контроллеров -->
+        <a-entity id="rig" movement-controls="speed: 0.15; constrainToNavMesh: false">
+            <!-- Камера (Голова) -->
+            <a-entity id="camera" camera look-controls position="0 1.6 0">
+                <a-cursor id="cursor" raycaster="objects: .clickable" color="red" scale="0.5 0.5 0.5"></a-cursor>
+            </a-entity>
+
+            <!-- Левая рука (Контроллер) -->
+            <a-entity id="left-controller" oculus-touch-controls="hand: left" laser-controls="hand: left" raycaster="objects: .clickable; far: 2; interval: 100"></a-entity>
             
-            // Оставляем центр (зону появления) свободной
-            if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
-
-            let building = document.createElement('a-entity');
-            building.setAttribute('position', {x: x, y: 0, z: z});
-
-            let height = Math.random() * 8 + 3;
-            let width = Math.random() * 6 + 3;
-            let depth = Math.random() * 6 + 3;
-
-            // Основной блок здания
-            let block = document.createElement('a-box');
-            block.setAttribute('width', width);
-            block.setAttribute('height', height);
-            block.setAttribute('depth', depth);
-            block.setAttribute('position', {x: 0, y: height/2, z: 0});
-            block.setAttribute('color', colors[Math.floor(Math.random() * colors.length)]);
-            block.setAttribute('roughness', '1');
-            building.appendChild(block);
-
-            this.el.appendChild(building);
-          }
-        }
-      });
-
-      // ==========================================
-      // 2. ИДЕАЛЬНОЕ ПЕРЕДВИЖЕНИЕ (БЕЗ ОШИБОК И ТОШНОТЫ)
-      // ==========================================
-      AFRAME.registerComponent('smooth-locomotion', {
-        init: function () {
-          this.rig = document.querySelector('#rig');
-          this.camera = document.querySelector('#camera');
-          this.x = 0; this.y = 0;
-          this.el.addEventListener('axismove', (evt) => {
-            this.x = evt.detail.axis[0];
-            this.y = evt.detail.axis[1];
-          });
-        },
-        tick: function () {
-          if (Math.abs(this.x) < 0.1 && Math.abs(this.y) < 0.1) return; // Мертвая зона стика
-          
-          let direction = new THREE.Vector3(this.x, 0, this.y);
-          let rotation = this.camera.getAttribute('rotation');
-          
-          // Движение туда, куда повернута голова
-          direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(rotation.y));
-          
-          let pos = this.rig.getAttribute('position');
-          pos.x += direction.x * 0.08;
-          pos.z += direction.z * 0.08;
-          this.rig.setAttribute('position', pos);
-        }
-      });
-
-      // Резкий поворот правым стиком (защита от укачивания)
-      AFRAME.registerComponent('snap-turn', {
-        init: function () {
-          this.rig = document.querySelector('#rig');
-          this.canTurn = true;
-          this.el.addEventListener('axismove', (evt) => {
-            let x = evt.detail.axis[0];
-            if (Math.abs(x) > 0.8 && this.canTurn) {
-              let rot = this.rig.getAttribute('rotation');
-              rot.y -= Math.sign(x) * 45; // Поворот ровно на 45 градусов
-              this.rig.setAttribute('rotation', rot);
-              this.canTurn = false;
-              setTimeout(() => this.canTurn = true, 400); // Задержка перед следующим поворотом
-            }
-          });
-        }
-      });
-
-      // ==========================================
-      // 3. БОЕВАЯ СИСТЕМА И ВРАГИ
-      // ==========================================
-      AFRAME.registerComponent('phantom-ai', {
-        schema: { speed: {type: 'number', default: 0.03} },
-        init: function () {
-          this.player = document.querySelector('#camera');
-          this.isDead = false;
-          this.el.classList.add('target');
-          this.time = Math.random() * 100;
-        },
-        tick: function () {
-          if (this.isDead || !this.player) return;
-          
-          this.time += 0.05;
-          let playerPos = new THREE.Vector3();
-          this.player.object3D.getWorldPosition(playerPos);
-          let currentPos = this.el.object3D.position;
-          
-          // Поворот к игроку
-          let angle = Math.atan2(playerPos.x - currentPos.x, playerPos.z - currentPos.z);
-          this.el.object3D.rotation.y = angle;
-          
-          // Медленное жуткое движение + парение в воздухе
-          this.el.object3D.translateZ(this.data.speed);
-          this.el.object3D.position.y = 1.5 + Math.sin(this.time) * 0.3;
-        },
-        die: function() {
-          if (this.isDead) return;
-          this.isDead = true;
-          
-          // Красивая анимация исчезновения
-          this.el.setAttribute('animation__scale', {property: 'scale', to: '0 0 0', dur: 400, easing: 'easeInBack'});
-          setTimeout(() => {
-            if (this.el.parentNode) this.el.parentNode.removeChild(this.el);
-            // Спавним нового фантома, чтобы игра не кончалась
-            document.querySelector('a-scene').components['game-manager'].spawnPhantom();
-          }, 450);
-        }
-      });
-
-      AFRAME.registerComponent('blaster', {
-        init: function () {
-          this.el.addEventListener('triggerdown', () => this.shoot());
-        },
-        shoot: function () {
-          // Мощная ВИБРАЦИЯ контроллера
-          const gamepad = this.el.components['tracked-controls']?.controller;
-          if (gamepad && gamepad.hapticActuators && gamepad.hapticActuators.length > 0) {
-            gamepad.hapticActuators[0].pulse(1.0, 100); // Максимальная сила, 100 миллисекунд
-          }
-
-          // Луч лазера
-          const scene = document.querySelector('a-scene');
-          const laser = document.createElement('a-entity');
-          laser.setAttribute('geometry', { primitive: 'cylinder', radius: 0.01, height: 50 });
-          laser.setAttribute('material', { color: '#00FFFF', emissive: '#00FFFF', shader: 'flat' });
-          
-          const pos = new THREE.Vector3();
-          this.el.object3D.getWorldPosition(pos);
-          const quat = new THREE.Quaternion();
-          this.el.object3D.getWorldQuaternion(quat);
-          
-          laser.object3D.position.copy(pos);
-          laser.object3D.quaternion.copy(quat);
-          laser.object3D.rotateX(THREE.MathUtils.degToRad(90));
-          laser.object3D.translateY(25); // Смещаем луч вперед
-          
-          scene.appendChild(laser);
-          setTimeout(() => scene.removeChild(laser), 60);
-
-          // Проверка попадания
-          const raycaster = new THREE.Raycaster();
-          const dir = new THREE.Vector3(0, 0, -1);
-          dir.applyQuaternion(quat);
-          raycaster.set(pos, dir);
-          
-          const targets = document.querySelectorAll('.target');
-          const hits = raycaster.intersectObjects(Array.from(targets).map(t => t.object3D), true);
-          
-          if (hits.length > 0) {
-            let hitEntity = hits[0].object;
-            while (hitEntity && !hitEntity.el.hasAttribute('phantom-ai')) hitEntity = hitEntity.parent;
-            if (hitEntity) hitEntity.el.components['phantom-ai'].die();
-          }
-        }
-      });
-
-      // Спавнер врагов
-      AFRAME.registerComponent('game-manager', {
-        init: function () {
-          for(let i=0; i<10; i++) this.spawnPhantom();
-        },
-        spawnPhantom: function() {
-          const scene = document.querySelector('a-scene');
-          const phantom = document.createElement('a-entity');
-          
-          let angle = Math.random() * Math.PI * 2;
-          let radius = 15 + Math.random() * 10;
-          let x = Math.cos(angle) * radius;
-          let z = Math.sin(angle) * radius;
-
-          phantom.setAttribute('position', {x: x, y: 1.5, z: z});
-          phantom.setAttribute('phantom-ai', '');
-          
-          // Внешний вид "Теневого Фантома" (мрачно и круто)
-          phantom.innerHTML = `
-            <a-sphere radius="0.4" color="#000" opacity="0.8" roughness="1"></a-sphere>
-            <a-sphere position="0.15 0.1 0.3" radius="0.08" color="#FF0000" emissive="#FF0000" shader="flat"></a-sphere>
-            <a-sphere position="-0.15 0.1 0.3" radius="0.08" color="#FF0000" emissive="#FF0000" shader="flat"></a-sphere>
-          `;
-          scene.appendChild(phantom);
-        }
-      });
-    </script>
-  </head>
-  <body>
-    <!-- Мрачная атмосфера с густым туманом -->
-    <a-scene fog="type: exponential; color: #0a0a0c; density: 0.08" game-manager>
-      
-      <!-- Генератор Заброшек -->
-      <a-entity ruins-generator></a-entity>
-
-      <!-- Земля -->
-      <a-plane rotation="-90 0 0" width="200" height="200" color="#111" roughness="1"></a-plane>
-
-      <!-- Игрок и Управление -->
-      <a-entity id="rig" position="0 0 0">
-        <a-entity id="camera" camera position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-entity>
-        
-        <!-- Левая рука: Плавная ходьба -->
-        <a-entity id="leftHand" oculus-touch-controls="hand: left" smooth-locomotion>
-          <!-- Модель перчатки -->
-          <a-box width="0.1" height="0.1" depth="0.1" color="#333"></a-box>
+            <!-- Правая рука (Контроллер) -->
+            <a-entity id="right-controller" oculus-touch-controls="hand: right" laser-controls="hand: right" raycaster="objects: .clickable; far: 2; interval: 100"></a-entity>
         </a-entity>
-        
-        <!-- Правая рука: Повороты и встроенный Бластер -->
-        <a-entity id="rightHand" oculus-touch-controls="hand: right" snap-turn blaster>
-          <!-- Модель кибер-бластера -->
-          <a-entity position="0 0 -0.05">
-            <a-box width="0.06" height="0.08" depth="0.2" color="#222"></a-box>
-            <a-cylinder position="0 0.02 -0.1" radius="0.015" height="0.15" rotation="90 0 0" color="#00FFFF" emissive="#00FFFF"></a-cylinder>
-          </a-entity>
-        </a-entity>
-      </a-entity>
 
-      <!-- Освещение -->
-      <a-light type="ambient" color="#222"></a-light>
-      <a-light type="directional" position="-1 2 1" color="#445566" intensity="0.5"></a-light>
+        <!-- ЛОББИ -->
+        <a-entity id="lobby">
+            <!-- Пол -->
+            <a-plane static-body rotation="-90 0 0" width="50" height="50" mixin="marble"></a-plane>
+            
+            <!-- Стены холла -->
+            <a-box position="0 2 -8" width="10" height="4" depth="0.2" material="color: #111"></a-box>
+            <a-box position="-5 2 -3" rotation="0 90 0" width="10" height="4" depth="0.2" material="color: #111"></a-box>
+            
+            <!-- Ресепшн -->
+            <a-entity position="0 0 -5">
+                <a-box static-body width="3" height="1" depth="1" material="color: #2b1d0e"></a-box>
+                <a-text value="RECEPTION" position="0 1.2 0" align="center" width="3" color="white"></a-text>
+                <!-- Кнопка билета -->
+                <a-box id="ticket-btn" class="clickable" position="0 0.55 0.3" width="0.3" height="0.1" depth="0.3" color="green"
+                       event-set__mouseenter="color: #00ff00"
+                       event-set__mouseleave="color: green"></a-box>
+            </a-entity>
+        </a-entity>
+
+        <!-- ЛИФТ -->
+        <a-entity id="elevator" position="5 0 -2">
+            <a-entity id="cab">
+                <!-- Стены кабины -->
+                <a-box static-body position="0 1.5 -1.5" width="3" height="3" depth="0.1" material="color: #222"></a-box>
+                <a-box static-body position="-1.5 1.5 0" rotation="0 90 0" width="3" height="3" depth="0.1" material="color: #222"></a-box>
+                <a-box static-body position="1.5 1.5 0" rotation="0 -90 0" width="3" height="3" depth="0.1" material="color: #222"></a-box>
+                <a-plane rotation="-90 0 0" width="3" height="3" position="0 0.01 0" material="color: #111"></a-plane>
+                
+                <!-- Двери лифта -->
+                <a-entity id="door-l" position="-0.75 1.5 1.5">
+                    <a-box width="1.5" height="3" depth="0.1" material="color: #444; metalness: 0.5"></a-box>
+                </a-entity>
+                <a-entity id="door-r" position="0.75 1.5 1.5">
+                    <a-box width="1.5" height="3" depth="0.1" material="color: #444; metalness: 0.5"></a-box>
+                </a-entity>
+
+                <!-- Панель управления лифтом -->
+                <a-entity position="1.4 1.2 0" rotation="0 -90 0">
+                    <a-plane width="0.4" height="1" color="#111">
+                        <a-text id="floor-display" value="0" align="center" position="0 0.4 0.01" color="red" font="monoid"></a-text>
+                        <!-- Контейнер для динамических кнопок -->
+                        <a-entity id="btns" position="0 -0.1 0.02"></a-entity>
+                    </a-plane>
+                </a-entity>
+
+                <!-- Освещение внутри лифта -->
+                <a-light type="point" intensity="0.5" distance="4" color="#fff" position="0 2.5 0"></a-light>
+            </a-entity>
+        </a-entity>
+
+        <!-- Освещение сцены -->
+        <a-light type="ambient" intensity="0.3"></a-light>
+        <a-light type="point" position="0 3 0" intensity="0.8"></a-light>
 
     </a-scene>
-  </body>
+
+    <script>
+        const state = {
+            hasTicket: false,
+            moving: false,
+            currentFloor: 0,
+            interactionReady: false
+        };
+
+        const els = {
+            doorL: document.querySelector('#door-l'),
+            doorR: document.querySelector('#door-r'),
+            display: document.querySelector('#floor-display'),
+            sndDoor: document.querySelector('#snd-door-open'),
+            sndMove: document.querySelector('#snd-elevator-move'),
+            overlay: document.querySelector('#interaction-overlay'),
+            ambient: document.querySelector('#snd-ambient')
+        };
+
+        // Запуск после первого клика
+        function startExperience() {
+            state.interactionReady = true;
+            els.overlay.style.display = 'none';
+            els.ambient.volume = 0.2;
+            els.ambient.play().catch(err => console.log("Audio play blocked", err));
+            // Открываем двери при входе
+            setTimeout(() => toggleDoors(true), 1000);
+        }
+
+        // Анимация дверей
+        function toggleDoors(open) {
+            if (!state.interactionReady) return;
+            els.sndDoor.currentTime = 0;
+            els.sndDoor.play().catch(() => {});
+            const targetX = open ? 1.4 : 0;
+            
+            els.doorL.setAttribute('animation', {
+                property: 'position',
+                to: `${-0.75 - targetX} 1.5 1.5`,
+                dur: 2000,
+                easing: 'easeInOutQuad'
+            });
+            els.doorR.setAttribute('animation', {
+                property: 'position',
+                to: `${0.75 + targetX} 1.5 1.5`,
+                dur: 2000,
+                easing: 'easeInOutQuad'
+            });
+        }
+
+        // Динамическая генерация кнопок этажей
+        const btnContainer = document.querySelector('#btns');
+        for(let i = 1; i <= 5; i++) {
+            const btn = document.createElement('a-entity');
+            btn.setAttribute('mixin', 'button-style');
+            btn.setAttribute('class', 'clickable');
+            btn.setAttribute('position', `0 ${0.25 - (i * 0.12)} 0`);
+            btn.setAttribute('rotation', '90 0 0');
+            
+            // Текст на кнопке
+            btn.innerHTML = `<a-text value="${i}" align="center" position="0 0.02 0" rotation="-90 0 0" width="2" color="white"></a-text>`;
+            
+            btn.addEventListener('click', () => {
+                if(!state.hasTicket) {
+                    // Используем внутриигровой индикатор вместо системного alert в VR
+                    els.display.setAttribute('value', 'ERR');
+                    setTimeout(() => els.display.setAttribute('value', state.currentFloor), 2000);
+                    return;
+                }
+                goToFloor(i);
+            });
+            btnContainer.appendChild(btn);
+        }
+
+        // Логика перемещения лифта
+        function goToFloor(floor) {
+            if(state.moving || state.currentFloor === floor) return;
+            state.moving = true;
+            
+            // Закрываем двери перед началом движения
+            toggleDoors(false);
+            
+            setTimeout(() => {
+                els.sndMove.play().catch(() => {});
+                let count = state.currentFloor;
+                const step = count < floor ? 1 : -1;
+                
+                const moveInterval = setInterval(() => {
+                    count += step;
+                    els.display.setAttribute('value', count);
+                    
+                    if(count === floor) {
+                        clearInterval(moveInterval);
+                        state.currentFloor = floor;
+                        state.moving = false;
+                        els.sndMove.pause();
+                        // Двери открываются по прибытии
+                        toggleDoors(true);
+                    }
+                }, 1500); // 1.5 секунды на этаж
+            }, 2200);
+        }
+
+        // Получение билета на ресепшене
+        document.querySelector('#ticket-btn').addEventListener('click', function() {
+            state.hasTicket = true;
+            this.setAttribute('material', 'color', '#00ff00');
+            // Визуальный фидбек
+            els.display.setAttribute('value', 'OK');
+            setTimeout(() => els.display.setAttribute('value', state.currentFloor), 1000);
+        });
+    </script>
+</body>
 </html>
